@@ -5,10 +5,8 @@ import (
     "log"
     "os"
 
-    "github.com/yourname/go-tiny-claw/internal/engine"
-    "github.com/yourname/go-tiny-claw/internal/provider"
-    "github.com/yourname/go-tiny-claw/internal/schema"
-    "github.com/yourname/go-tiny-claw/internal/tools"
+    "github.com/eastbadman/agent-study/go-tiny-claw/internal/engine"
+    "github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 )
 
 // ==========================================

@@ -2,7 +2,7 @@ package tools
 
 import (
     "context"
-    "github.com/yourname/go-tiny-claw/internal/schema"
+    "github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 )
 
 // Registry 定义了工具的注册与分发执行接口

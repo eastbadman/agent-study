@@ -2,7 +2,7 @@ package provider
 
 import (
     "context"
-    "github.com/yourname/go-tiny-claw/internal/schema"
+    "github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 )
 
 // LLMProvider 定义了与大模型通信的统一契约

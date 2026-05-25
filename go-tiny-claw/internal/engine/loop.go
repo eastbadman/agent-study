@@ -5,9 +5,9 @@ import (
     "fmt"
     "log"
 
-    "github.com/yourname/go-tiny-claw/internal/provider"
-    "github.com/yourname/go-tiny-claw/internal/schema"
-    "github.com/yourname/go-tiny-claw/internal/tools"
+    "github.com/eastbadman/agent-study/go-tiny-claw/internal/provider"
+    "github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
+    "github.com/eastbadman/agent-study/go-tiny-claw/internal/tools"
 )
 
 // AgentEngine 是微型 OS 的核心驱动
