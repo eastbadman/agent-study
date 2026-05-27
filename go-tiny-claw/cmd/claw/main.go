@@ -8,7 +8,7 @@ import (
     "github.com/eastbadman/agent-study/go-tiny-claw/internal/engine"
     "github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
     "github.com/eastbadman/agent-study/go-tiny-claw/internal/provider"
-    "github.com/eastbadman/agent-study/go-tiny-claw/internal/tools"
+
 )
 
 type mockRegistry struct{}
@@ -35,7 +35,7 @@ func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema
 	log.Printf("  -> [Mock 工具执行] 获取 %s 的天气中...\n", call.Name)
 	return schema.ToolResult{
 		ToolCallID: call.ID,
-		Output:     "API 返回：今天是晴天，气温 25 度。",
+		Output:     "API 返回：今天是晴天，气温 25 度。天气很好",
 		IsError:    false,
 	}
 }
@@ -57,7 +57,7 @@ func main() {
 	}
 	registry := &mockRegistry{}
 
-	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
+	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
 
 	prompt := "我想去北京跑步，帮我查查天气适合吗？"
 

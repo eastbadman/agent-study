@@ -20,13 +20,13 @@ type AgentEngine struct {
     EnableThinking bool // 【新增】慢思考模式开关
 }
 
-func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string) *AgentEngine {
-    return &AgentEngine{
-        provider: p,
-        registry: r,
-        WorkDir:  workDir,
-        EnableThinking: enableThinking,
-    }
+func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, enableThinking bool) *AgentEngine {
+	return &AgentEngine{
+		provider:      p,
+		registry:      r,
+		WorkDir:       workDir,
+		EnableThinking: enableThinking,
+	}
 }
 
 // Run 启动 Agent 的生命周期
