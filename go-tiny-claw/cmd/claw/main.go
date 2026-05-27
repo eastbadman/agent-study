@@ -41,13 +41,20 @@ func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema
 }
 
 func main() {
-	if os.Getenv("ZHIPU_API_KEY") == "" {
-		log.Fatal("请先导出 ZHIPU_API_KEY 环境变量")
-	}
+	var llmProvider provider.LLMProvider
 
 	workDir, _ := os.Getwd()
 
-	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
+	// 根据环境变量选择 Provider，默认使用 DeepSeek
+	providerName := os.Getenv("LLM_PROVIDER")
+	switch providerName {
+	case "zhipu":
+		llmProvider = provider.NewZhipuOpenAIProvider("glm-4.5-air")
+	case "claude":
+		llmProvider = provider.NewZhipuClaudeProvider("claude-3-5-sonnet-20241022")
+	default:
+		llmProvider = provider.NewDeepSeekProvider("deepseek-v4-pro")
+	}
 	registry := &mockRegistry{}
 
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
