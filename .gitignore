@@ -1,4 +1,9 @@
 .idea/
 .claude/settings.local.json
-java-tiny-claw/target
+
+# Go
+go-tiny-claw/claw.exe
+
+# Java
+java-tiny-claw/target/
 
