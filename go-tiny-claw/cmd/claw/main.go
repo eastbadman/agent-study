@@ -70,12 +70,17 @@ func main() {
 	// 3. 初始化真实的 Tool Registry
 	registry := tools.NewRegistry()
 	// 4. 将真实的 ReadFile 工具挂载到注册表中
-	readFileTool := tools.NewReadFileTool(workDir)
-	registry.Register(readFileTool)
+	registry.Register(tools.NewReadFileTool(workDir))
+	registry.Register(tools.NewWriteFileTool(workDir))
+	registry.Register(tools.NewBashTool(workDir))
+	registry.Register(tools.NewEditFileTool(workDir))
 	// 5. 实例化核心引擎，由于任务简单，我们关闭思考阶段 (EnableThinking = false) 以加快速度
-	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
+	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
 
-	prompt := "请调用工具读取一下当前工作区目录下 hello.txt 文件的内容，并用一句话向我总结它说了什么。"
+	prompt := `
+	我当前目录下有 a.txt, b.txt, c.txt 三个文件。
+    为了节省时间，请你同时一次性读取这三个文件，使用read_file工具，并将它们的内容综合起来，告诉我它们分别记录了什么领域的信息。
+	`
 
 	err = eng.Run(context.Background(), prompt)
 	if err != nil {
