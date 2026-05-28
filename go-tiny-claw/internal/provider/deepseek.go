@@ -1,136 +1,208 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/shared"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 )
 
-// DeepSeekProvider 基于 OpenAI 兼容协议对接 DeepSeek
+// DeepSeekProvider 基于 OpenAI 兼容协议对接 DeepSeek（使用原始 HTTP 以正确处理 reasoning_content）
 type DeepSeekProvider struct {
-	client openai.Client
-	model  string
+	apiKey  string
+	model   string
+	baseURL string
+	client  *http.Client
 }
 
 func NewDeepSeekProvider(apiKey, model, baseURL string) *DeepSeekProvider {
 	return &DeepSeekProvider{
-		client: openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)),
-		model:  model,
+		apiKey:  apiKey,
+		model:   model,
+		baseURL: baseURL,
+		client:  &http.Client{},
 	}
 }
 
-func (p *DeepSeekProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
-	var openaiMsgs []openai.ChatCompletionMessageParamUnion
+// requestBody 是发送给 DeepSeek API 的请求体结构
+type requestBody struct {
+	Model    string        `json:"model"`
+	Messages []any         `json:"messages"`
+	Tools    []toolDefJSON `json:"tools,omitempty"`
+}
 
-	// 1. 翻译上下文消息
+type toolDefJSON struct {
+	Type     string         `json:"type"`
+	Function functionDefJSON `json:"function"`
+}
+
+type functionDefJSON struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+// apiResponse 是 DeepSeek API 的响应结构
+type apiResponse struct {
+	Choices []struct {
+		Message struct {
+			Role             string `json:"role"`
+			Content          string `json:"content"`
+			ReasoningContent any    `json:"reasoning_content"`
+			ToolCalls        []struct {
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"message"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+func (p *DeepSeekProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
+	// 1. 构建消息列表，确保 reasoning_content 原样回传
+	var messages []any
 	for _, msg := range msgs {
 		switch msg.Role {
 		case schema.RoleSystem:
-			openaiMsgs = append(openaiMsgs, openai.SystemMessage(msg.Content))
+			messages = append(messages, map[string]any{
+				"role":    "system",
+				"content": msg.Content,
+			})
 
 		case schema.RoleUser:
 			if msg.ToolCallID != "" {
-				openaiMsgs = append(openaiMsgs, openai.ToolMessage(msg.Content, msg.ToolCallID))
+				messages = append(messages, map[string]any{
+					"role":         "tool",
+					"content":      msg.Content,
+					"tool_call_id": msg.ToolCallID,
+				})
 			} else {
-				openaiMsgs = append(openaiMsgs, openai.UserMessage(msg.Content))
-			}
-
-		case schema.RoleAssistant:
-			astParam := openai.ChatCompletionAssistantMessageParam{}
-
-			if msg.Content != "" {
-				astParam.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
-					OfString: openai.String(msg.Content),
-				}
-			}
-
-			if len(msg.ToolCalls) > 0 {
-				var toolCalls []openai.ChatCompletionMessageToolCallUnionParam
-				for _, tc := range msg.ToolCalls {
-					toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
-						OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-							ID:   tc.ID,
-							Type: "function",
-							Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
-								Name:      tc.Name,
-								Arguments: string(tc.Arguments),
-							},
-						},
-					})
-				}
-				astParam.ToolCalls = toolCalls
-			}
-
-			if msg.ReasoningContent != "" {
-				astParam.SetExtraFields(map[string]any{
-					"reasoning_content": msg.ReasoningContent,
+				messages = append(messages, map[string]any{
+					"role":    "user",
+					"content": msg.Content,
 				})
 			}
 
-			openaiMsgs = append(openaiMsgs, openai.ChatCompletionMessageParamUnion{
-				OfAssistant: &astParam,
-			})
+		case schema.RoleAssistant:
+			m := map[string]any{
+				"role": "assistant",
+			}
+			if msg.Content != "" {
+				m["content"] = msg.Content
+			}
+			if msg.HasReasoningContent {
+				m["reasoning_content"] = msg.ReasoningContent
+			}
+			if len(msg.ToolCalls) > 0 {
+				var toolCalls []map[string]any
+				for _, tc := range msg.ToolCalls {
+					toolCalls = append(toolCalls, map[string]any{
+						"id":   tc.ID,
+						"type": "function",
+						"function": map[string]any{
+							"name":      tc.Name,
+							"arguments": string(tc.Arguments),
+						},
+					})
+				}
+				m["tool_calls"] = toolCalls
+			}
+			messages = append(messages, m)
 		}
 	}
 
-	// 2. 翻译工具定义
-	var openaiTools []openai.ChatCompletionToolUnionParam
+	// 2. 构建工具定义
+	var tools []toolDefJSON
 	for _, toolDef := range availableTools {
-		var params shared.FunctionParameters
-
+		var params map[string]any
 		if m, ok := toolDef.InputSchema.(map[string]interface{}); ok {
-			params = shared.FunctionParameters(m)
+			params = m
 		} else {
 			b, _ := json.Marshal(toolDef.InputSchema)
 			_ = json.Unmarshal(b, &params)
 		}
-
-		openaiTools = append(openaiTools, openai.ChatCompletionFunctionTool(
-			shared.FunctionDefinitionParam{
+		tools = append(tools, toolDefJSON{
+			Type: "function",
+			Function: functionDefJSON{
 				Name:        toolDef.Name,
-				Description: openai.String(toolDef.Description),
+				Description: toolDef.Description,
 				Parameters:  params,
 			},
-		))
+		})
 	}
 
-	// 3. 构建请求并发送
-	params := openai.ChatCompletionNewParams{
+	// 3. 构建请求体
+	reqBody := requestBody{
 		Model:    p.model,
-		Messages: openaiMsgs,
+		Messages: messages,
+		Tools:    tools,
 	}
 
-	// DeepSeek 文档: 仅当 availableTools 存在时才挂载 Tools
-	if len(openaiTools) > 0 {
-		params.Tools = openaiTools
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("序列化请求体失败: %w", err)
 	}
 
-	resp, err := p.client.Chat.Completions.New(ctx, params)
+	// 4. 发送 HTTP 请求
+	url := p.baseURL + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("DeepSeek API 请求失败: %w", err)
 	}
-	if len(resp.Choices) == 0 {
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("DeepSeek API 请求失败: %s %s", resp.Status, string(respBytes))
+	}
+
+	// 5. 解析响应
+	var apiResp apiResponse
+	if err := json.Unmarshal(respBytes, &apiResp); err != nil {
+		return nil, fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	if apiResp.Error != nil {
+		return nil, fmt.Errorf("DeepSeek API 错误: %s", apiResp.Error.Message)
+	}
+
+	if len(apiResp.Choices) == 0 {
 		return nil, fmt.Errorf("DeepSeek API 返回了空的 Choices")
 	}
 
-	// 4. 反向翻译为内部 schema.Message
-	choice := resp.Choices[0].Message
+	choice := apiResp.Choices[0].Message
 	resultMsg := &schema.Message{
 		Role:    schema.RoleAssistant,
 		Content: choice.Content,
 	}
 
-	if f, ok := choice.JSON.ExtraFields["reasoning_content"]; ok && f.Valid() {
-		raw := f.Raw()
-		if len(raw) >= 2 && raw[0] == '"' {
-			raw = raw[1 : len(raw)-1]
+	// 提取 reasoning_content（保留原始值：字符串或 null）
+	if choice.ReasoningContent != nil {
+		resultMsg.HasReasoningContent = true
+		if s, ok := choice.ReasoningContent.(string); ok {
+			resultMsg.ReasoningContent = s
 		}
-		resultMsg.ReasoningContent = raw
 	}
 
 	for _, tc := range choice.ToolCalls {

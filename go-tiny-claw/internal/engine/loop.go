@@ -74,6 +74,21 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
                 fmt.Printf("🧠 [内部思考 Trace]: %s\n", thinkResp.Content)
                 contextHistory = append(contextHistory, *thinkResp)
             }
+
+            // 如果上下文中已有工具结果，且 Phase 1 未请求工具调用，
+            // 说明模型已经基于已有信息得出了结论，无需再进入 Phase 2
+            hasToolResults := false
+            for _, msg := range contextHistory {
+                if msg.ToolCallID != "" {
+                    hasToolResults = true
+                    break
+                }
+            }
+            if hasToolResults && len(thinkResp.ToolCalls) == 0 && thinkResp.Content != "" {
+                fmt.Printf("🤖 [对外回复]: %s\n", thinkResp.Content)
+                log.Println("[Engine] Phase 1 已得出结论，跳过 Phase 2，任务完成。")
+                break
+            }
         }
 
         // ====================================================================

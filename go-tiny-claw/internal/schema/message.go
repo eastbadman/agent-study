@@ -18,6 +18,8 @@ type Message struct {
 
     // DeepSeek 思考模式返回的推理内容，需在后续请求中原样回传
     ReasoningContent string `json:"reasoning_content,omitempty"`
+    // 标记 reasoning_content 是否在 API 响应中存在（即使为 null 也需回传）
+    HasReasoningContent bool `json:"-"`
 
     // 如果模型决定调用工具，此字段将被填充 (支持并行调用多个工具)
     ToolCalls []ToolCall `json:"tool_calls,omitempty"`

@@ -68,7 +68,7 @@ func main() {
 
 	registry := &mockRegistry{}
 
-	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
+	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
 
 	prompt := "我想去北京跑步，帮我查查天气适合吗？"
 
