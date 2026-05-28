@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
+	"github.com/eastbadman/agent-study/go-tiny-claw/internal/config"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/engine"
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 )
@@ -24,35 +26,25 @@ type FeishuBot struct {
 	engine    *engine.AgentEngine // 持有核心引擎引用
 }
 
-func NewFeishuBot(eng *engine.AgentEngine) *FeishuBot {
-	appID := os.Getenv("FEISHU_APP_ID")
-	appSecret := os.Getenv("FEISHU_APP_SECRET")
-
-	if appID == "" || appSecret == "" {
-		log.Fatal("请设置 FEISHU_APP_ID 和 FEISHU_APP_SECRET")
+func NewFeishuBot(eng *engine.AgentEngine, cfg *config.FeishuConf) *FeishuBot {
+	if cfg.AppID == "" || cfg.AppSecret == "" {
+		log.Fatal("请配置 feishu.app_id 和 feishu.app_secret")
 	}
 
-	// 实例化飞书官方客户端
-	client := lark.NewClient(appID, appSecret)
+	client := lark.NewClient(cfg.AppID, cfg.AppSecret)
 
 	return &FeishuBot{
 		client:    client,
-		appID:     appID,
-		appSecret: appSecret,
+		appID:     cfg.AppID,
+		appSecret: cfg.AppSecret,
 		engine:    eng,
 	}
 }
 
-// GetEventDispatcher 用于注册到 HTTP 服务器，处理来自飞书的 POST 事件
+// GetEventDispatcher 构建事件调度器（WebSocket 长连接模式下不需要验证 token 和加密 key）
 func (b *FeishuBot) GetEventDispatcher() *dispatcher.EventDispatcher {
-	encryptKey := os.Getenv("FEISHU_ENCRYPT_KEY")
-	verifyToken := os.Getenv("FEISHU_VERIFY_TOKEN")
-
-	// 使用官方 SDK 构建调度器，监听 "接收消息" 事件
-	handler := dispatcher.NewEventDispatcher(verifyToken, encryptKey).
+	handler := dispatcher.NewEventDispatcher("", "").
 		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
-			// 由于飞书消息体是 JSON，我们需要粗略地提取其中的文本内容。
-			// 这里简单处理：去掉开头结尾的特殊转义字符和引用的机器人名字。
 			contentStr := *event.Event.Message.Content
 			contentStr = strings.TrimPrefix(contentStr, `{"text":"`)
 			contentStr = strings.TrimSuffix(contentStr, `"}`)
@@ -60,18 +52,23 @@ func (b *FeishuBot) GetEventDispatcher() *dispatcher.EventDispatcher {
 			chatId := *event.Event.Message.ChatId
 			log.Printf("[Feishu] 收到会话 %s 消息: %s\n", chatId, contentStr)
 
-			// 【驾驭并发】：收到消息后，绝不能阻塞 HTTP 回调。
-			// 我们要为每个请求开启一个独立的 Goroutine 跑 Agent 任务！
 			go b.handleAgentRun(chatId, contentStr)
-
 			return nil
 		}).
 		OnP2MessageReadV1(func(ctx context.Context, event *larkim.P2MessageReadV1) error {
-			// 消息已读事件，静默忽略（避免日志干扰）
 			return nil
 		})
 
 	return handler
+}
+
+// Start 启动飞书 WebSocket 长连接客户端（阻塞当前 goroutine）
+func (b *FeishuBot) Start(ctx context.Context) error {
+	cli := larkws.NewClient(b.appID, b.appSecret,
+		larkws.WithEventHandler(b.GetEventDispatcher()),
+		larkws.WithLogLevel(larkcore.LogLevelDebug),
+	)
+	return cli.Start(ctx)
 }
 
 // handleAgentRun 是连接飞书与底层引擎的桥梁
@@ -107,7 +104,7 @@ func (r *FeishuReporter) sendMsg(text string) {
 	contentStr := string(contentBytes)
 
 	msgReq := larkim.NewCreateMessageReqBuilder().
-		ReceiveIdType(larkim.ReceiveIdTypeChatId).
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeChatId).
 		Body(larkim.NewCreateMessageReqBodyBuilder().
 			ReceiveId(r.chatId).
 			MsgType(larkim.MsgTypeText).

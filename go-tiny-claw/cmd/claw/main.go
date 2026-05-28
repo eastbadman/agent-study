@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/provider"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/tools"
-	"github.com/larksuite/oapi-sdk-go/v3/core/httpserverext"
 )
 
 type mockRegistry struct{}
@@ -81,19 +79,13 @@ func main() {
 	// 开启慢思考
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
 
-	// 2. 初始化飞书 Bot 调度器
-	bot := feishu.NewFeishuBot(eng)
-	handler := httpserverext.NewEventHandlerFunc(bot.GetEventDispatcher())
+	// 2. 初始化飞书 Bot
+	bot := feishu.NewFeishuBot(eng, &cfg.Feishu)
 
-	// 3. 注册路由并启动 HTTP 服务
-	http.HandleFunc("/webhook/event", handler)
-
-	port := ":48080"
-	log.Printf("🚀 go-tiny-claw 飞书服务端已启动，正在监听 %s 端口\n", port)
-
-	err := http.ListenAndServe(port, nil)
-	if err != nil {
-		log.Fatalf("服务器启动失败: %v", err)
+	// 3. 启动飞书 WebSocket 长连接（阻塞）
+	log.Printf("🚀 go-tiny-claw 飞书长连接模式已启动")
+	if err := bot.Start(context.Background()); err != nil {
+		log.Fatalf("飞书长连接启动失败: %v", err)
 	}
 }
 

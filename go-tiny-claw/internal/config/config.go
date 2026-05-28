@@ -10,6 +10,12 @@ type Config struct {
 	Provider string       `json:"provider"`
 	DeepSeek DeepSeekConf `json:"deepseek"`
 	Zhipu    ZhipuConf    `json:"zhipu"`
+	Feishu   FeishuConf   `json:"feishu"`
+}
+
+type FeishuConf struct {
+	AppID     string `json:"app_id"`
+	AppSecret string `json:"app_secret"`
 }
 
 type DeepSeekConf struct {
