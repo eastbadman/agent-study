@@ -11,6 +11,7 @@ import (
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/engine"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/provider"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
+	"github.com/eastbadman/agent-study/go-tiny-claw/internal/tools"
 )
 
 type mockRegistry struct{}
@@ -66,11 +67,15 @@ func main() {
 
 	fmt.Printf("当前 Provider: %s, Model: %s\n", cfg.Provider, modelOf(cfg))
 
-	registry := &mockRegistry{}
-
+	// 3. 初始化真实的 Tool Registry
+	registry := tools.NewRegistry()
+	// 4. 将真实的 ReadFile 工具挂载到注册表中
+	readFileTool := tools.NewReadFileTool(workDir)
+	registry.Register(readFileTool)
+	// 5. 实例化核心引擎，由于任务简单，我们关闭思考阶段 (EnableThinking = false) 以加快速度
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, false)
 
-	prompt := "我想去北京跑步，帮我查查天气适合吗？"
+	prompt := "请调用工具读取一下当前工作区目录下 hello.txt 文件的内容，并用一句话向我总结它说了什么。"
 
 	err = eng.Run(context.Background(), prompt)
 	if err != nil {
