@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/config"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/engine"
+	"github.com/eastbadman/agent-study/go-tiny-claw/internal/feishu"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/provider"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/tools"
+	"github.com/larksuite/oapi-sdk-go/v3/core/httpserverext"
 )
 
 type mockRegistry struct{}
@@ -74,17 +77,23 @@ func main() {
 	registry.Register(tools.NewWriteFileTool(workDir))
 	registry.Register(tools.NewBashTool(workDir))
 	registry.Register(tools.NewEditFileTool(workDir))
-	// 5. 实例化核心引擎，由于任务简单，我们关闭思考阶段 (EnableThinking = false) 以加快速度
+
+	// 开启慢思考
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
 
-	prompt := `
-	我当前目录下有 a.txt, b.txt, c.txt 三个文件。
-    为了节省时间，请你同时一次性读取这三个文件，使用read_file工具，并将它们的内容综合起来，告诉我它们分别记录了什么领域的信息。
-	`
+	// 2. 初始化飞书 Bot 调度器
+	bot := feishu.NewFeishuBot(eng)
+	handler := httpserverext.NewEventHandlerFunc(bot.GetEventDispatcher())
 
-	err = eng.Run(context.Background(), prompt)
+	// 3. 注册路由并启动 HTTP 服务
+	http.HandleFunc("/webhook/event", handler)
+
+	port := ":48080"
+	log.Printf("🚀 go-tiny-claw 飞书服务端已启动，正在监听 %s 端口\n", port)
+
+	err := http.ListenAndServe(port, nil)
 	if err != nil {
-		log.Fatalf("引擎运行崩溃: %v", err)
+		log.Fatalf("服务器启动失败: %v", err)
 	}
 }
 
