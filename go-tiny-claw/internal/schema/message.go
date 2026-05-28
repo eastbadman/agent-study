@@ -16,6 +16,9 @@ type Message struct {
     Role    Role   `json:"role"`
     Content string `json:"content"` // 存放纯文本内容
 
+    // DeepSeek 思考模式返回的推理内容，需在后续请求中原样回传
+    ReasoningContent string `json:"reasoning_content,omitempty"`
+
     // 如果模型决定调用工具，此字段将被填充 (支持并行调用多个工具)
     ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 

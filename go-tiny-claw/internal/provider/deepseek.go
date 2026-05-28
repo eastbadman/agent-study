@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -18,18 +17,7 @@ type DeepSeekProvider struct {
 	model  string
 }
 
-// NewDeepSeekProvider 构造函数：使用 OpenAI V3 SDK 指向 DeepSeek 端点
-//
-// DeepSeek API 完全兼容 OpenAI Chat Completions 格式
-// 端点: https://api.deepseek.com
-// 模型: deepseek-v4-pro, deepseek-v4-flash 等
-func NewDeepSeekProvider(model string) *DeepSeekProvider {
-	apiKey := os.Getenv("DEEPSEEK_API_KEY")
-	if apiKey == "" {
-		panic("请设置 DEEPSEEK_API_KEY 环境变量")
-	}
-	baseURL := "https://api.deepseek.com"
-
+func NewDeepSeekProvider(apiKey, model, baseURL string) *DeepSeekProvider {
 	return &DeepSeekProvider{
 		client: openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)),
 		model:  model,
@@ -76,6 +64,12 @@ func (p *DeepSeekProvider) Generate(ctx context.Context, msgs []schema.Message, 
 					})
 				}
 				astParam.ToolCalls = toolCalls
+			}
+
+			if msg.ReasoningContent != "" {
+				astParam.SetExtraFields(map[string]any{
+					"reasoning_content": msg.ReasoningContent,
+				})
 			}
 
 			openaiMsgs = append(openaiMsgs, openai.ChatCompletionMessageParamUnion{
@@ -129,6 +123,14 @@ func (p *DeepSeekProvider) Generate(ctx context.Context, msgs []schema.Message, 
 	resultMsg := &schema.Message{
 		Role:    schema.RoleAssistant,
 		Content: choice.Content,
+	}
+
+	if f, ok := choice.JSON.ExtraFields["reasoning_content"]; ok && f.Valid() {
+		raw := f.Raw()
+		if len(raw) >= 2 && raw[0] == '"' {
+			raw = raw[1 : len(raw)-1]
+		}
+		resultMsg.ReasoningContent = raw
 	}
 
 	for _, tc := range choice.ToolCalls {

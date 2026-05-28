@@ -2,14 +2,13 @@
 package provider
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "os"
+	"context"
+	"encoding/json"
+	"fmt"
 
-    "github.com/anthropics/anthropic-sdk-go"
-    "github.com/anthropics/anthropic-sdk-go/option"
-    "github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 )
 
 type ClaudeProvider struct {
@@ -17,16 +16,11 @@ type ClaudeProvider struct {
     model  string
 }
 
-func NewZhipuClaudeProvider(model string) *ClaudeProvider {
-    apiKey := os.Getenv("ZHIPU_API_KEY")
-    if apiKey == "" {
-        panic("请设置 ZHIPU_API_KEY 环境变量")
-    }
-    baseURL := "https://open.bigmodel.cn/api/paas/v4/"
-    return &ClaudeProvider{
-        client: anthropic.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)),
-        model:  model,
-    }
+func NewZhipuClaudeProvider(apiKey, model, baseURL string) *ClaudeProvider {
+	return &ClaudeProvider{
+		client: anthropic.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)),
+		model:  model,
+	}
 }
 
 func (p *ClaudeProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {

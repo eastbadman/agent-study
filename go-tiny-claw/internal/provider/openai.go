@@ -2,15 +2,14 @@
 package provider
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "os"
+	"context"
+	"encoding/json"
+	"fmt"
 
-    "github.com/openai/openai-go/v3"
-    "github.com/openai/openai-go/v3/option"
-    "github.com/openai/openai-go/v3/shared"
-    "github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/shared"
+	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 )
 
 type OpenAIProvider struct {
@@ -18,19 +17,11 @@ type OpenAIProvider struct {
     model  string
 }
 
-// NewZhipuOpenAIProvider 构造函数：基于 OpenAI V3 SDK，指向智谱底座
-func NewZhipuOpenAIProvider(model string) *OpenAIProvider {
-    apiKey := os.Getenv("ZHIPU_API_KEY")
-    if apiKey == "" {
-        panic("请设置 ZHIPU_API_KEY 环境变量")
-    }
-    // 核心：将官方 SDK 的地址替换为智谱的兼容端点
-    baseURL := "https://open.bigmodel.cn/api/paas/v4/"
-
-    return &OpenAIProvider{
-        client: openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)),
-        model:  model,
-    }
+func NewZhipuOpenAIProvider(apiKey, model, baseURL string) *OpenAIProvider {
+	return &OpenAIProvider{
+		client: openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)),
+		model:  model,
+	}
 }
 
 func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
@@ -76,6 +67,12 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
                     })
                 }
                 astParam.ToolCalls = toolCalls
+            }
+
+            if msg.ReasoningContent != "" {
+                astParam.SetExtraFields(map[string]any{
+                    "reasoning_content": msg.ReasoningContent,
+                })
             }
 
             openaiMsgs = append(openaiMsgs, openai.ChatCompletionMessageParamUnion{
@@ -131,6 +128,14 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
     resultMsg := &schema.Message{
         Role:    schema.RoleAssistant,
         Content: choice.Content,
+    }
+
+    if f, ok := choice.JSON.ExtraFields["reasoning_content"]; ok && f.Valid() {
+        raw := f.Raw()
+        if len(raw) >= 2 && raw[0] == '"' {
+            raw = raw[1 : len(raw)-1]
+        }
+        resultMsg.ReasoningContent = raw
     }
 
     for _, tc := range choice.ToolCalls {
