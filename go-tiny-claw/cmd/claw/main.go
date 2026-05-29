@@ -9,7 +9,7 @@ import (
 
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/config"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/engine"
-	"github.com/eastbadman/agent-study/go-tiny-claw/internal/feishu"
+	/* "github.com/eastbadman/agent-study/go-tiny-claw/internal/feishu" */
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/provider"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/tools"
@@ -45,8 +45,9 @@ func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema
 }
 
 func main() {
-	workDir, _ := os.Getwd()
-	configPath := filepath.Join(workDir, "config.json")
+	projectDir, _ := os.Getwd()
+	workDir := filepath.Join(projectDir, "workspace")
+	configPath := filepath.Join(projectDir, "config.json")
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -80,13 +81,24 @@ func main() {
 	eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
 
 	// 2. 初始化飞书 Bot
-	bot := feishu.NewFeishuBot(eng, &cfg.Feishu)
+	/* bot := feishu.NewFeishuBot(eng, &cfg.Feishu)
 
 	// 3. 启动飞书 WebSocket 长连接（阻塞）
 	log.Printf("🚀 go-tiny-claw 飞书长连接模式已启动")
 	if err := bot.Start(context.Background()); err != nil {
 		log.Fatalf("飞书长连接启动失败: %v", err)
-	}
+	} */
+	// 【注入新实现的终端输出器】
+    reporter := engine.NewTerminalReporter()
+
+    prompt := `
+    我需要在当前目录下新建一个 ping.go，提供一个简单的 http ping 接口。
+    写完之后，帮我把代码用 git 提交一下。
+    `
+    err = eng.Run(context.Background(), prompt, reporter)
+    if err != nil {
+        log.Fatalf("引擎运行崩溃: %v", err)
+    }
 }
 
 func modelOf(cfg *config.Config) string {

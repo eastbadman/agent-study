@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/provider"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/tools"
+	ctxpkg "github.com/eastbadman/agent-study/go-tiny-claw/internal/context"
 )
+
+const maxTurns = 15
 
 // AgentEngine 是微型 OS 的核心驱动
 type AgentEngine struct {
@@ -18,6 +22,7 @@ type AgentEngine struct {
 
 	WorkDir        string
 	EnableThinking bool
+	composer       *ctxpkg.PromptComposer
 }
 
 func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, enableThinking bool) *AgentEngine {
@@ -26,14 +31,18 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 		registry:       r,
 		WorkDir:        workDir,
 		EnableThinking: enableThinking,
+		composer:       ctxpkg.NewPromptComposer(workDir),
 	}
 }
 
 func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Reporter) error {
 	log.Printf("[Engine] 引擎启动，锁定工作区: %s\n", e.WorkDir)
+
+	systemMsg := e.composer.Build()
 	log.Printf("[Engine] 慢思考模式 (Thinking Phase): %v\n", e.EnableThinking)
 
 	contextHistory := []schema.Message{
+		systemMsg,
 		{
 			Role:    schema.RoleSystem,
 			Content: "You are go-tiny-claw, an expert coding assistant. You have full access to tools in the workspace.",
@@ -49,6 +58,11 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 	for {
 		turnCount++
 		log.Printf("\n========== [Turn %d] 开始 ==========\n", turnCount)
+
+		if turnCount > maxTurns {
+			log.Printf("[Engine] 已达到最大轮次上限 (%d)，强制终止。\n", maxTurns)
+			break
+		}
 
 		availableTools := e.registry.GetAvailableTools()
 
@@ -72,19 +86,17 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 				contextHistory = append(contextHistory, *thinkResp)
 			}
 
-			hasToolResults := false
-			for _, msg := range contextHistory {
-				if msg.ToolCallID != "" {
-					hasToolResults = true
-					break
+			// 检测 [TASK_COMPLETE] 信号：模型确认任务完成时主动发出
+			if strings.Contains(thinkResp.Content, "[TASK_COMPLETE]") {
+				cleanContent := strings.Replace(thinkResp.Content, "[TASK_COMPLETE]", "", -1)
+				cleanContent = strings.TrimSpace(cleanContent)
+				if cleanContent != "" {
+					fmt.Printf("🤖 [对外回复]: %s\n", cleanContent)
+					if reporter != nil {
+						reporter.OnMessage(ctx, cleanContent)
+					}
 				}
-			}
-			if hasToolResults && len(thinkResp.ToolCalls) == 0 && thinkResp.Content != "" {
-				fmt.Printf("🤖 [对外回复]: %s\n", thinkResp.Content)
-				if reporter != nil {
-					reporter.OnMessage(ctx, thinkResp.Content)
-				}
-				log.Println("[Engine] Phase 1 已得出结论，跳过 Phase 2，任务完成。")
+				log.Println("[Engine] Phase 1 检测到任务完成信号，任务完成。")
 				break
 			}
 		}
