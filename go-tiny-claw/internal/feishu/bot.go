@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/config"
+	ctxpkg "github.com/eastbadman/agent-study/go-tiny-claw/internal/context"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/engine"
+	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -73,14 +76,16 @@ func (b *FeishuBot) Start(ctx context.Context) error {
 
 // handleAgentRun 是连接飞书与底层引擎的桥梁
 func (b *FeishuBot) handleAgentRun(chatId string, prompt string) {
-	// 为当前聊天窗口实例化一个专属的 Reporter
 	reporter := &FeishuReporter{
 		client: b.client,
 		chatId: chatId,
 	}
 
-	// 启动引擎！
-	err := b.engine.Run(context.Background(), prompt, reporter)
+	workDir, _ := os.Getwd()
+	session := ctxpkg.GlobalSessionMgr.GetOrCreate(chatId, workDir)
+	session.Append(schema.Message{Role: schema.RoleUser, Content: prompt})
+
+	err := b.engine.Run(context.Background(), session, reporter)
 	if err != nil {
 		reporter.sendMsg(fmt.Sprintf("❌ Agent 运行崩溃: %v", err))
 	}

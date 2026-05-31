@@ -7,51 +7,38 @@ import (
 	"strings"
 	"sync"
 
+	ctxpkg "github.com/eastbadman/agent-study/go-tiny-claw/internal/context"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/provider"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/schema"
 	"github.com/eastbadman/agent-study/go-tiny-claw/internal/tools"
-	ctxpkg "github.com/eastbadman/agent-study/go-tiny-claw/internal/context"
 )
 
 const maxTurns = 15
 
 // AgentEngine 是微型 OS 的核心驱动
 type AgentEngine struct {
-	provider provider.LLMProvider
-	registry tools.Registry
-
-	WorkDir        string
+	provider       provider.LLMProvider
+	registry       tools.Registry
 	EnableThinking bool
-	composer       *ctxpkg.PromptComposer
 }
 
-func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, enableThinking bool) *AgentEngine {
+// 【注意】：我们移除了 Engine 层级的 WorkDir，因为 WorkDir 现在应该跟随 Session 走！
+func NewAgentEngine(p provider.LLMProvider, r tools.Registry, enableThinking bool) *AgentEngine {
 	return &AgentEngine{
 		provider:       p,
 		registry:       r,
-		WorkDir:        workDir,
 		EnableThinking: enableThinking,
-		composer:       ctxpkg.NewPromptComposer(workDir),
 	}
 }
 
-func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Reporter) error {
-	log.Printf("[Engine] 引擎启动，锁定工作区: %s\n", e.WorkDir)
+func (e *AgentEngine) Run(ctx context.Context, session *ctxpkg.Session, reporter Reporter) error {
+	log.Printf("[Engine] 唤醒会话 [%s]，锁定工作区: %s\n", session.ID, session.WorkDir)
 
-	systemMsg := e.composer.Build()
+	// 根据当前 Session 的工作区，动态组装最新的 System Prompt
+	composer := ctxpkg.NewPromptComposer(session.WorkDir)
+	systemMsg := composer.Build()
+
 	log.Printf("[Engine] 慢思考模式 (Thinking Phase): %v\n", e.EnableThinking)
-
-	contextHistory := []schema.Message{
-		systemMsg,
-		{
-			Role:    schema.RoleSystem,
-			Content: "You are go-tiny-claw, an expert coding assistant. You have full access to tools in the workspace.",
-		},
-		{
-			Role:    schema.RoleUser,
-			Content: userPrompt,
-		},
-	}
 
 	turnCount := 0
 
@@ -65,6 +52,14 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 		}
 
 		availableTools := e.registry.GetAvailableTools()
+
+		// 1. 【上下文组装】: System Prompt + 截取最近的 6 条消息作为 Working Memory
+		// 在实际业务中，由于工具返回结果可能很长，短期工作记忆往往设为 6-10 条足以维系连贯对话
+		workingMemory := session.GetWorkingMemory(6)
+
+		var contextHistory []schema.Message
+		contextHistory = append(contextHistory, systemMsg)
+		contextHistory = append(contextHistory, workingMemory...)
 
 		// ====================================================================
 		// Phase 1: 慢思考阶段 (Thinking) - 剥夺工具，强制规划
@@ -111,6 +106,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 			return fmt.Errorf("Action 阶段生成失败: %w", err)
 		}
 
+		session.Append(*actionResp)
 		contextHistory = append(contextHistory, *actionResp)
 
 		if actionResp.Content != "" {
@@ -171,9 +167,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Repor
 		wg.Wait()
 		log.Println("[Engine] 所有并发工具执行完毕，开始聚合观察结果 (Observation)...")
 
-		for _, obs := range observationMsgs {
-			contextHistory = append(contextHistory, obs)
-		}
+		session.Append(observationMsgs...)
 	}
 
 	return nil
